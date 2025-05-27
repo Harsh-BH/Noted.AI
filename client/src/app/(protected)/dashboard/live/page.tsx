@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { 
@@ -12,41 +12,63 @@ import {
   ArrowRight, 
   Headphones, 
   Mic, 
-  Users 
+  Users,
+  Loader2,
+  CalendarX
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { GridPattern, DecorativeSVG } from "@/components/ui/decorative-svg";
 import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/components/ui/use-toast";
 
-// Mock data for upcoming sessions
-const upcomingSessions = [
-  {
-    id: "sess-123",
-    title: "Weekly Team Standup",
-    date: "2023-11-15T10:00:00",
-    participants: 8,
-    duration: "30 min"
-  },
-  {
-    id: "sess-124",
-    title: "Product Planning",
-    date: "2023-11-16T14:30:00",
-    participants: 5,
-    duration: "60 min"
-  },
-  {
-    id: "sess-125",
-    title: "Client Presentation",
-    date: "2023-11-17T09:00:00",
-    participants: 12,
-    duration: "45 min"
-  }
-];
+// Session type definition
+interface Session {
+  id: string;
+  title: string;
+  date: string;
+  participants: number | string[];
+  duration: string;
+  description?: string;
+}
 
 export default function LiveDashboard() {
   const [sessionCode, setSessionCode] = useState("");
+  const [upcomingSessions, setUpcomingSessions] = useState<Session[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    // Fetch upcoming sessions from API
+    fetchUpcomingSessions();
+  }, []);
+
+  const fetchUpcomingSessions = async () => {
+    setIsLoading(true);
+    try {
+      // In a real app, this would be an API call
+      // For now, we'll simulate an API call with a timeout
+      const response = await fetch('/api/sessions/upcoming');
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch upcoming sessions');
+      }
+      
+      const data = await response.json();
+      setUpcomingSessions(data.sessions || []);
+    } catch (error) {
+      console.error("Error fetching sessions:", error);
+      toast({
+        title: "Failed to load sessions",
+        description: "Please try refreshing the page",
+        variant: "destructive",
+      });
+      setUpcomingSessions([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const container = {
     hidden: { opacity: 0 },
@@ -134,48 +156,71 @@ export default function LiveDashboard() {
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-medium">Upcoming Sessions</h2>
               <Link href="/dashboard/live/schedule" className="text-primary text-sm flex items-center hover:underline">
-                View all <ArrowRight size={14} className="ml-1" />
+                Schedule new <ArrowRight size={14} className="ml-1" />
               </Link>
             </div>
             
             <div className="space-y-3">
-              {upcomingSessions.map((session) => (
-                <motion.div
-                  key={session.id}
-                  whileHover={{ scale: 1.01 }}
-                  className="bg-card/30 backdrop-blur-sm border border-border/30 rounded-lg p-4 transition-all hover:border-primary/30 hover:shadow-md"
-                >
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <h3 className="font-medium text-lg">{session.title}</h3>
-                      <div className="flex gap-4 mt-2">
-                        <div className="flex items-center text-muted-foreground text-sm">
-                          <Calendar size={14} className="mr-1" />
-                          {new Date(session.date).toLocaleDateString()}
-                        </div>
-                        <div className="flex items-center text-muted-foreground text-sm">
-                          <Clock size={14} className="mr-1" />
-                          {new Date(session.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                        </div>
-                        <div className="flex items-center text-muted-foreground text-sm">
-                          <Users size={14} className="mr-1" />
-                          {session.participants}
+              {isLoading ? (
+                <div className="p-12 flex flex-col items-center justify-center text-center">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
+                  <p className="text-muted-foreground">Loading your upcoming sessions...</p>
+                </div>
+              ) : upcomingSessions.length > 0 ? (
+                upcomingSessions.map((session) => (
+                  <motion.div
+                    key={session.id}
+                    whileHover={{ scale: 1.01 }}
+                    className="bg-card/30 backdrop-blur-sm border border-border/30 rounded-lg p-4 transition-all hover:border-primary/30 hover:shadow-md"
+                  >
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <h3 className="font-medium text-lg">{session.title}</h3>
+                        <div className="flex gap-4 mt-2">
+                          <div className="flex items-center text-muted-foreground text-sm">
+                            <Calendar size={14} className="mr-1" />
+                            {new Date(session.date).toLocaleDateString()}
+                          </div>
+                          <div className="flex items-center text-muted-foreground text-sm">
+                            <Clock size={14} className="mr-1" />
+                            {new Date(session.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                          </div>
+                          <div className="flex items-center text-muted-foreground text-sm">
+                            <Users size={14} className="mr-1" />
+                            {typeof session.participants === 'number' 
+                              ? session.participants 
+                              : session.participants.length}
+                          </div>
                         </div>
                       </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20">
+                          {session.duration}
+                        </Badge>
+                        <Button size="sm" asChild>
+                          <Link href={`/dashboard/live/${session.id}`}>
+                            Join
+                          </Link>
+                        </Button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20">
-                        {session.duration}
-                      </Badge>
-                      <Button size="sm" asChild>
-                        <Link href={`/dashboard/live/${session.id}`}>
-                          Join
-                        </Link>
-                      </Button>
-                    </div>
-                  </div>
-                </motion.div>
-              ))}
+                  </motion.div>
+                ))
+              ) : (
+                <div className="p-12 flex flex-col items-center justify-center text-center border border-dashed border-border rounded-lg bg-card/30">
+                  <CalendarX className="h-12 w-12 text-muted-foreground/50 mb-4" />
+                  <h3 className="font-medium text-lg">No Upcoming Sessions</h3>
+                  <p className="text-muted-foreground mt-1 mb-4">
+                    You don't have any scheduled sessions coming up.
+                  </p>
+                  <Button asChild>
+                    <Link href="/dashboard/live/schedule" className="gap-2">
+                      <Plus size={16} />
+                      <span>Schedule a Session</span>
+                    </Link>
+                  </Button>
+                </div>
+              )}
             </div>
           </motion.div>
         </motion.div>
@@ -251,13 +296,7 @@ export default function LiveDashboard() {
   );
 }
 
-interface FeatureItemProps {
-  title: string;
-  description: string;
-  icon: React.ReactNode;
-}
-
-function FeatureItem({ title, description, icon }: FeatureItemProps) {
+function FeatureItem({ title, description, icon }: { title: string; description: string; icon: React.ReactNode }) {
   return (
     <motion.div 
       className="flex gap-4 p-4 rounded-lg bg-background/30 border border-border/30 hover:border-primary/20 transition-all"

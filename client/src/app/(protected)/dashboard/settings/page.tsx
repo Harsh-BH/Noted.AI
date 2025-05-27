@@ -70,6 +70,16 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from "@/components/ui/alert-dialog";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -100,62 +110,50 @@ const passwordFormSchema = z.object({
   path: ["confirmPassword"],
 });
 
-// Mock user type and data
+// User profile type
 type UserProfile = {
   id: string;
   name: string;
   email: string;
   avatar?: string;
-  createdAt: string;
+  createdAt?: string;
+  updatedAt?: string;
   bio?: string;
   jobTitle?: string;
   location?: string;
   timezone?: string;
-  notificationsEnabled: boolean;
-  emailNotificationsEnabled: boolean;
-  soundNotificationsEnabled: boolean;
-  plan: "free" | "pro" | "enterprise";
+  notificationsEnabled?: boolean;
+  emailNotificationsEnabled?: boolean;
+  soundNotificationsEnabled?: boolean;
+  theme?: "light" | "dark" | "system";
+  plan?: "free" | "pro" | "enterprise";
   device?: string;
   lastSeen?: string;
 }
 
-const MOCK_USER_PROFILE: UserProfile = {
-  id: "user-123",
-  name: "Alex Johnson",
-  email: "alex@example.com",
-  createdAt: "2022-04-15T10:00:00Z",
-  bio: "Machine learning engineer and data science enthusiast. Love to explore new technologies and create innovative solutions.",
-  jobTitle: "Senior ML Engineer",
-  location: "San Francisco, CA",
-  timezone: "America/Los_Angeles",
-  notificationsEnabled: true,
-  emailNotificationsEnabled: true,
-  soundNotificationsEnabled: true,
-  plan: "pro",
-  device: "Chrome on macOS",
-  lastSeen: "Just now",
-};
-
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState("profile");
   const [isEditing, setIsEditing] = useState(false);
-  const [userProfile, setUserProfile] = useState<UserProfile>(MOCK_USER_PROFILE);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const { user, logout } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isFetching, setIsFetching] = useState(true);
 
-  // Initialize form with user profile data
+  // Initialize profile form
   const profileForm = useForm<z.infer<typeof profileFormSchema>>({
     resolver: zodResolver(profileFormSchema),
     defaultValues: {
-      name: userProfile.name,
-      email: userProfile.email,
-      bio: userProfile.bio || "",
-      jobTitle: userProfile.jobTitle || "",
-      location: userProfile.location || "",
-      timezone: userProfile.timezone || "",
+      name: "",
+      email: "",
+      bio: "",
+      jobTitle: "",
+      location: "",
+      timezone: "",
     },
   });
 
+  // Initialize password form
   const passwordForm = useForm<z.infer<typeof passwordFormSchema>>({
     resolver: zodResolver(passwordFormSchema),
     defaultValues: {
@@ -165,23 +163,74 @@ export default function SettingsPage() {
     },
   });
 
+  // Fetch user profile data on mount
+  useEffect(() => {
+    const fetchUserProfile = async () => {
+      setIsFetching(true);
+      try {
+        const response = await fetch('/api/user/settings', {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          credentials: 'include',
+        });
+        
+        if (!response.ok) {
+          throw new Error('Failed to fetch user profile');
+        }
+        
+        const data = await response.json();
+        setUserProfile(data.user);
+        
+        // Set default values for the form
+        profileForm.reset({
+          name: data.user.name || "",
+          email: data.user.email || "",
+          bio: data.user.bio || "",
+          jobTitle: data.user.jobTitle || "",
+          location: data.user.location || "",
+          timezone: data.user.timezone || "",
+        });
+        
+      } catch (error) {
+        console.error('Error fetching user profile:', error);
+        toast.error('Failed to load user profile');
+      } finally {
+        setIsFetching(false);
+      }
+    };
+    
+    fetchUserProfile();
+  }, []);
+
   // Handle profile form submission
   const onProfileSubmit = async (values: z.infer<typeof profileFormSchema>) => {
     setIsLoading(true);
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const response = await fetch('/api/user/settings', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          updateType: 'profile',
+          data: values
+        }),
+      });
       
-      // Update user profile state
-      setUserProfile(prev => ({
-        ...prev,
-        ...values,
-      }));
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to update profile');
+      }
       
+      const data = await response.json();
+      setUserProfile(data.user);
       setIsEditing(false);
       toast.success("Profile updated successfully");
     } catch (error) {
-      toast.error("Failed to update profile. Please try again.");
+      toast.error(error instanceof Error ? error.message : 'Failed to update profile');
       console.error("Profile update error:", error);
     } finally {
       setIsLoading(false);
@@ -192,8 +241,25 @@ export default function SettingsPage() {
   const onPasswordSubmit = async (values: z.infer<typeof passwordFormSchema>) => {
     setIsLoading(true);
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const response = await fetch('/api/user/settings', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          updateType: 'password',
+          data: {
+            currentPassword: values.currentPassword,
+            newPassword: values.newPassword,
+          }
+        }),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to change password');
+      }
       
       toast.success("Password changed successfully");
       passwordForm.reset({
@@ -202,7 +268,7 @@ export default function SettingsPage() {
         confirmPassword: "",
       });
     } catch (error) {
-      toast.error("Failed to change password. Please try again.");
+      toast.error(error instanceof Error ? error.message : 'Failed to change password');
       console.error("Password change error:", error);
     } finally {
       setIsLoading(false);
@@ -210,30 +276,131 @@ export default function SettingsPage() {
   };
 
   // Handle notification toggle
-  const handleNotificationToggle = (key: keyof UserProfile) => {
-    setUserProfile(prev => ({
-      ...prev,
-      [key]: !prev[key as keyof UserProfile],
-    }));
+  const handleNotificationToggle = async (key: string, value: boolean) => {
+    try {
+      // Optimistically update UI
+      setUserProfile(prev => prev ? {
+        ...prev,
+        [key]: value,
+      } : null);
+      
+      const response = await fetch('/api/user/settings', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          updateType: 'notifications',
+          data: {
+            [key]: value
+          }
+        }),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to update notification settings');
+      }
+      
+      const data = await response.json();
+      setUserProfile(data.user);
+      toast.success("Notification settings updated");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to update notification settings');
+      console.error("Notification settings update error:", error);
+      // Revert optimistic update on error
+      fetchUserProfile();
+    }
+  };
+
+  // Handle theme change
+  const handleThemeChange = async (theme: "light" | "dark" | "system") => {
+    try {
+      // Optimistically update UI
+      setUserProfile(prev => prev ? {
+        ...prev,
+        theme,
+      } : null);
+      
+      const response = await fetch('/api/user/settings', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          updateType: 'appearance',
+          data: {
+            theme
+          }
+        }),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to update theme');
+      }
+      
+      const data = await response.json();
+      setUserProfile(data.user);
+      toast.success(`Theme updated to ${theme}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to update theme');
+      console.error("Theme update error:", error);
+      // Revert optimistic update on error
+      fetchUserProfile();
+    }
   };
 
   // Handle account deletion
   const handleDeleteAccount = async () => {
-    if (window.confirm("Are you sure you want to delete your account? This action cannot be undone.")) {
-      setIsLoading(true);
-      try {
-        // Simulate API call
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        toast.success("Account deleted successfully");
-        // Redirect to logout or home page
-        logout();
-      } catch (error) {
-        toast.error("Failed to delete account. Please try again.");
-        console.error("Account deletion error:", error);
-      } finally {
-        setIsLoading(false);
+    setIsLoading(true);
+    try {
+      const response = await fetch('/api/user/delete', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to delete account');
       }
+      
+      toast.success("Account deleted successfully");
+      // Redirect to logout
+      logout();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to delete account');
+      console.error("Account deletion error:", error);
+    } finally {
+      setIsLoading(false);
+      setIsDeleteDialogOpen(false);
+    }
+  };
+
+  // Re-fetch user profile
+  const fetchUserProfile = async () => {
+    try {
+      const response = await fetch('/api/user/settings', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch user profile');
+      }
+      
+      const data = await response.json();
+      setUserProfile(data.user);
+    } catch (error) {
+      console.error('Error fetching user profile:', error);
     }
   };
 
@@ -248,6 +415,28 @@ export default function SettingsPage() {
       day: "numeric",
     }).format(date);
   };
+
+  // Display loading skeleton while fetching
+  if (isFetching) {
+    return (
+      <div className="container px-0 animate-fadeIn pb-8">
+        <div className="mb-8 mt-2">
+          <div className="h-8 w-64 bg-muted rounded animate-pulse mb-2"></div>
+          <div className="h-4 w-96 bg-muted rounded animate-pulse"></div>
+        </div>
+        
+        <div className="flex flex-col lg:flex-row gap-6">
+          <div className="lg:w-64 shrink-0">
+            <div className="h-80 bg-muted rounded animate-pulse"></div>
+          </div>
+          
+          <div className="flex-1">
+            <div className="h-96 bg-muted rounded animate-pulse"></div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="container px-0 animate-fadeIn pb-8">
@@ -276,32 +465,32 @@ export default function SettingsPage() {
                 <div className="flex flex-col items-center gap-4">
                   <div className="relative group">
                     <Avatar className="w-20 h-20 border-2 border-primary/20 group-hover:border-primary/50 transition-colors">
-                      <AvatarImage src={userProfile.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${userProfile.name}`} />
-                      <AvatarFallback>{userProfile.name.substring(0, 2).toUpperCase()}</AvatarFallback>
+                      <AvatarImage src={userProfile?.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${userProfile?.name}`} />
+                      <AvatarFallback>{userProfile?.name?.substring(0, 2).toUpperCase() || "NA"}</AvatarFallback>
                     </Avatar>
                     <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/30 rounded-full">
                       <Camera className="w-6 h-6 text-white" />
                     </div>
                   </div>
                   <div className="text-center">
-                    <h2 className="font-medium text-lg">{userProfile.name}</h2>
-                    <p className="text-sm text-muted-foreground">{userProfile.email}</p>
+                    <h2 className="font-medium text-lg">{userProfile?.name}</h2>
+                    <p className="text-sm text-muted-foreground">{userProfile?.email}</p>
                   </div>
                 </div>
               </CardHeader>
               <CardContent className="p-4 pt-2">
                 <div className="flex items-center justify-center gap-2 mb-4">
-                  <Badge variant={userProfile.plan === "pro" ? "default" : "outline"} className="flex items-center gap-1">
+                  <Badge variant={(userProfile?.plan === "pro" || userProfile?.plan === "enterprise") ? "default" : "outline"} className="flex items-center gap-1">
                     <Sparkles className="h-3 w-3" />
-                    <span className="capitalize">{userProfile.plan} Plan</span>
+                    <span className="capitalize">{userProfile?.plan || "Free"} Plan</span>
                   </Badge>
                 </div>
                 <div className="text-xs text-muted-foreground space-y-1">
                   <div className="flex items-center gap-2">
                     <Calendar className="h-3 w-3" />
-                    <span>Joined {formatDate(userProfile.createdAt)}</span>
+                    <span>Joined {formatDate(userProfile?.createdAt)}</span>
                   </div>
-                  {userProfile.location && (
+                  {userProfile?.location && (
                     <div className="flex items-center gap-2">
                       <Globe className="h-3 w-3" />
                       <span>{userProfile.location}</span>
@@ -392,7 +581,7 @@ export default function SettingsPage() {
                   <Button 
                     variant="ghost" 
                     className="w-full justify-start hover:text-destructive px-2"
-                    onClick={handleDeleteAccount}
+                    onClick={() => setIsDeleteDialogOpen(true)}
                   >
                     <Trash2 className="h-4 w-4 mr-2" />
                     Delete Account
@@ -508,6 +697,7 @@ export default function SettingsPage() {
                                     readOnly={!isEditing}
                                     disabled={!isEditing}
                                     {...field}
+                                    value={field.value || ""}
                                   />
                                 </FormControl>
                                 <FormDescription>
@@ -531,6 +721,7 @@ export default function SettingsPage() {
                                       readOnly={!isEditing}
                                       disabled={!isEditing}
                                       {...field}
+                                      value={field.value || ""}
                                     />
                                   </FormControl>
                                   <FormMessage />
@@ -549,6 +740,7 @@ export default function SettingsPage() {
                                       readOnly={!isEditing}
                                       disabled={!isEditing}
                                       {...field}
+                                      value={field.value || ""}
                                     />
                                   </FormControl>
                                   <FormMessage />
@@ -646,8 +838,8 @@ export default function SettingsPage() {
                     <div className="flex flex-col sm:flex-row gap-6 items-center">
                       <div className="relative group">
                         <Avatar className="w-32 h-32 border-2 border-primary/20 group-hover:border-primary/50 transition-colors">
-                          <AvatarImage src={userProfile.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${userProfile.name}`} />
-                          <AvatarFallback>{userProfile.name.substring(0, 2).toUpperCase()}</AvatarFallback>
+                          <AvatarImage src={userProfile?.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${userProfile?.name}`} />
+                          <AvatarFallback>{userProfile?.name?.substring(0, 2).toUpperCase() || "NA"}</AvatarFallback>
                         </Avatar>
                         <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/30 rounded-full">
                           <Camera className="w-8 h-8 text-white" />
@@ -663,7 +855,7 @@ export default function SettingsPage() {
                             <UploadCloud className="h-4 w-4" />
                             Upload New Picture
                           </Button>
-                          <Button variant="outline">
+                          <Button variant="outline" disabled={!userProfile?.avatar}>
                             <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
@@ -799,13 +991,13 @@ export default function SettingsPage() {
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
                             <Badge variant="success" className="bg-green-500 text-white">Current</Badge>
-                            <span className="font-medium">{userProfile.device}</span>
+                            <span className="font-medium">{userProfile?.device || "Current Browser"}</span>
                           </div>
-                          <span className="text-xs text-muted-foreground">{userProfile.lastSeen}</span>
+                          <span className="text-xs text-muted-foreground">{userProfile?.lastSeen || "Just now"}</span>
                         </div>
                       </div>
                       <div className="flex justify-end">
-                        <Button variant="destructive" className="gap-2">
+                        <Button variant="destructive" className="gap-2" onClick={logout}>
                           <LogOut className="h-4 w-4" />
                           Logout from all devices
                         </Button>
@@ -851,28 +1043,51 @@ export default function SettingsPage() {
                   </CardHeader>
                   <CardContent>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div className="border border-border hover:border-primary rounded-lg p-4 cursor-pointer transition-colors flex flex-col items-center justify-between gap-4">
+                      <div 
+                        className={cn(
+                          "border rounded-lg p-4 cursor-pointer transition-colors flex flex-col items-center justify-between gap-4",
+                          userProfile?.theme === "light" ? "border-primary" : "border-border hover:border-primary/50"
+                        )}
+                        onClick={() => handleThemeChange("light")}
+                      >
                         <div className="h-20 w-full rounded bg-background flex items-center justify-center">
                           <Sun className="h-8 w-8 text-primary" />
                         </div>
                         <div className="text-center">
-                          <h3 className="font-medium">Light</h3>
+                          <div className="flex items-center gap-2">
+                            <h3 className="font-medium">Light</h3>
+                            {userProfile?.theme === "light" && <Badge>Active</Badge>}
+                          </div>
                           <p className="text-xs text-muted-foreground">Light theme</p>
                         </div>
                       </div>
-                      <div className="border border-border hover:border-primary rounded-lg p-4 cursor-pointer transition-colors flex flex-col items-center justify-between gap-4">
+                      
+                      <div 
+                        className={cn(
+                          "border rounded-lg p-4 cursor-pointer transition-colors flex flex-col items-center justify-between gap-4",
+                          userProfile?.theme === "dark" ? "border-primary" : "border-border hover:border-primary/50"
+                        )}
+                        onClick={() => handleThemeChange("dark")}
+                      >
                         <div className="h-20 w-full rounded bg-slate-950 flex items-center justify-center">
                           <Moon className="h-8 w-8 text-sky-400" />
                         </div>
                         <div className="text-center">
                           <div className="flex items-center gap-2">
                             <h3 className="font-medium">Dark</h3>
-                            <Badge>Active</Badge>
+                            {userProfile?.theme === "dark" && <Badge>Active</Badge>}
                           </div>
                           <p className="text-xs text-muted-foreground">Dark theme</p>
                         </div>
                       </div>
-                      <div className="border border-border hover:border-primary rounded-lg p-4 cursor-pointer transition-colors flex flex-col items-center justify-between gap-4">
+                      
+                      <div 
+                        className={cn(
+                          "border rounded-lg p-4 cursor-pointer transition-colors flex flex-col items-center justify-between gap-4",
+                          userProfile?.theme === "system" || !userProfile?.theme ? "border-primary" : "border-border hover:border-primary/50"
+                        )}
+                        onClick={() => handleThemeChange("system")}
+                      >
                         <div className="h-20 w-full rounded bg-gradient-to-r from-white to-slate-900 flex items-center justify-center">
                           <div className="flex space-x-1">
                             <Sun className="h-8 w-8 text-amber-500" />
@@ -880,7 +1095,10 @@ export default function SettingsPage() {
                           </div>
                         </div>
                         <div className="text-center">
-                          <h3 className="font-medium">System</h3>
+                          <div className="flex items-center gap-2">
+                            <h3 className="font-medium">System</h3>
+                            {(userProfile?.theme === "system" || !userProfile?.theme) && <Badge>Active</Badge>}
+                          </div>
                           <p className="text-xs text-muted-foreground">Follow system preference</p>
                         </div>
                       </div>
@@ -906,8 +1124,8 @@ export default function SettingsPage() {
                         <p className="text-sm text-muted-foreground">Receive notifications for important events</p>
                       </div>
                       <Switch 
-                        checked={userProfile.notificationsEnabled}
-                        onCheckedChange={() => handleNotificationToggle('notificationsEnabled')}
+                        checked={userProfile?.notificationsEnabled || false}
+                        onCheckedChange={(checked) => handleNotificationToggle("notificationsEnabled", checked)}
                       />
                     </div>
                     
@@ -919,9 +1137,9 @@ export default function SettingsPage() {
                         <p className="text-sm text-muted-foreground">Receive notifications via email</p>
                       </div>
                       <Switch 
-                        checked={userProfile.emailNotificationsEnabled}
-                        onCheckedChange={() => handleNotificationToggle('emailNotificationsEnabled')}
-                        disabled={!userProfile.notificationsEnabled}
+                        checked={userProfile?.emailNotificationsEnabled || false}
+                        onCheckedChange={(checked) => handleNotificationToggle("emailNotificationsEnabled", checked)}
+                        disabled={!userProfile?.notificationsEnabled}
                       />
                     </div>
                     
@@ -931,9 +1149,9 @@ export default function SettingsPage() {
                         <p className="text-sm text-muted-foreground">Play sounds for notifications</p>
                       </div>
                       <Switch 
-                        checked={userProfile.soundNotificationsEnabled}
-                        onCheckedChange={() => handleNotificationToggle('soundNotificationsEnabled')}
-                        disabled={!userProfile.notificationsEnabled}
+                        checked={userProfile?.soundNotificationsEnabled || false}
+                        onCheckedChange={(checked) => handleNotificationToggle("soundNotificationsEnabled", checked)}
+                        disabled={!userProfile?.notificationsEnabled}
                       />
                     </div>
                   </CardContent>
@@ -956,8 +1174,8 @@ export default function SettingsPage() {
                       <div className="flex items-center justify-between rounded-lg border p-4 border-primary/30 bg-primary/5">
                         <div className="space-y-1">
                           <div className="flex items-center gap-2">
-                            <span className="font-semibold capitalize">{userProfile.plan} Plan</span>
-                            {userProfile.plan !== "free" && (
+                            <span className="font-semibold capitalize">{userProfile?.plan || "Free"} Plan</span>
+                            {userProfile?.plan && userProfile.plan !== "free" && (
                               <Badge variant="secondary">
                                 <CheckCircle className="h-3 w-3 mr-1" />
                                 Active
@@ -965,20 +1183,20 @@ export default function SettingsPage() {
                             )}
                           </div>
                           <p className="text-sm text-muted-foreground">
-                            {userProfile.plan === "free" 
+                            {!userProfile?.plan || userProfile?.plan === "free" 
                               ? "Basic features with limited storage" 
-                              : userProfile.plan === "pro" 
+                              : userProfile?.plan === "pro" 
                                 ? "Full access to all features and premium support"
                                 : "Enterprise-grade features with dedicated support"}
                           </p>
                         </div>
-                        {userProfile.plan === "free" && (
+                        {(!userProfile?.plan || userProfile?.plan === "free") && (
                           <Button className="gap-2">
                             <Sparkles className="h-4 w-4" />
                             Upgrade
                           </Button>
                         )}
-                        {userProfile.plan !== "free" && (
+                        {userProfile?.plan && userProfile.plan !== "free" && (
                           <Button variant="outline">Manage Subscription</Button>
                         )}
                       </div>
@@ -1007,7 +1225,7 @@ export default function SettingsPage() {
                       <Button 
                         variant="destructive" 
                         className="gap-2"
-                        onClick={handleDeleteAccount}
+                        onClick={() => setIsDeleteDialogOpen(true)}
                       >
                         <Trash2 className="h-4 w-4" />
                         Delete Account
@@ -1020,6 +1238,39 @@ export default function SettingsPage() {
           </Tabs>
         </div>
       </div>
+
+      {/* Delete Account Confirmation Dialog */}
+      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete your account and remove all of your data from our servers.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isLoading}>Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={(e) => {
+                e.preventDefault();
+                handleDeleteAccount();
+              }}
+              className="bg-destructive hover:bg-destructive/90"
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <>
+                  <svg className="animate-spin h-4 w-4 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Deleting...
+                </>
+              ) : "Yes, delete my account"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Decorative SVG at the bottom */}
       <div className="fixed bottom-4 right-4 opacity-20 pointer-events-none">

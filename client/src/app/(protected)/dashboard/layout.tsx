@@ -195,10 +195,10 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
               active={pathname === "/dashboard/library"} 
             />
             <NavItem 
-              href="/dashboard/community" 
+              href="/dashboard/chatbot" 
               icon={<BotMessageSquare size={18} />} 
               label="ChatBot" 
-              active={pathname === "/dashboard/community"} 
+              active={pathname === "/dashboard/chatbot"} 
             />
             
             <div className="text-xs uppercase text-muted-foreground tracking-wider pl-3 mt-6 mb-2">Settings</div>

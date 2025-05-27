@@ -1,101 +1,86 @@
 import { NextResponse } from 'next/server';
 import dbConnect from '@/lib/mongodb';
 import User from '@/models/User';
-import { signToken } from '@/lib/jwt';
+import { generateToken } from '@/lib/jwt';
+import { z } from 'zod';
+
+// Schema for signup validation - only require essential fields
+const signupSchema = z.object({
+  name: z.string().min(2, { message: "Name must be at least 2 characters" }),
+  email: z.string().email({ message: "Invalid email address" }),
+  password: z.string().min(6, { message: "Password must be at least 6 characters" }),
+});
 
 export async function POST(request: Request) {
   try {
-    // Connect to database with better error handling
-    try {
-      await dbConnect();
-      console.log('Connected to MongoDB in signup route');
-    } catch (dbError) {
-      console.error('Database connection error in signup route:', dbError);
-      return NextResponse.json(
-        { error: 'Database connection failed. Please try again later.' },
-        { status: 503 }
-      );
-    }
+    await dbConnect();
     
-    // Parse request body
-    const { name, email, password } = await request.json();
-    console.log('Processing signup for:', email);
+    const body = await request.json();
     
-    // Check if user already exists
+    // Validate incoming data
     try {
-      const existingUser = await User.findOne({ email });
-      if (existingUser) {
+      signupSchema.parse(body);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
         return NextResponse.json(
-          { error: 'User with this email already exists' },
-          { status: 409 }
+          { error: error.errors },
+          { status: 400 }
         );
       }
-    } catch (findError) {
-      console.error('Error checking for existing user:', findError);
+    }
+    
+    const { name, email, password } = body;
+
+    // Check if user already exists
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
       return NextResponse.json(
-        { error: 'Error checking for existing user' },
-        { status: 500 }
+        { error: 'User with this email already exists' },
+        { status: 409 }
       );
     }
     
     // Create new user
-    let user;
-    try {
-      user = await User.create({
-        name,
-        email,
-        password,
-      });
-      console.log('User created successfully:', user._id);
-    } catch (createError) {
-      console.error('Error creating user:', createError);
-      return NextResponse.json(
-        { error: 'Failed to create user account' },
-        { status: 500 }
-      );
-    }
-    
-    // Generate JWT token
-    const token = signToken({
-      id: user._id,
-      name: user.name,
-      email: user.email,
+    const newUser = new User({
+      name,
+      email,
+      password // Will be hashed by pre-save hook in the model
     });
     
-    // Create response with user data
-    const response = NextResponse.json({
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-      },
-      message: 'Account created successfully',
-    }, { status: 201 });
+    await newUser.save();
     
-    // Set cookie directly in response
+    // Generate token
+    const token = generateToken({
+      id: newUser._id,
+      name: newUser.name,
+      email: newUser.email
+    });
+    
+    // Create response
+    const response = NextResponse.json({
+      message: 'User created successfully',
+      user: {
+        id: newUser._id,
+        name: newUser.name,
+        email: newUser.email
+      }
+    });
+    
+    // Set the token as an HTTP-only cookie
     response.cookies.set({
       name: 'auth-token',
       value: token,
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      maxAge: 60 * 60 * 24 * 7, // 1 week
+      sameSite: 'strict',
       path: '/',
-      sameSite: 'lax',
+      maxAge: 60 * 60 * 24 * 7 // 1 week
     });
     
     return response;
     
   } catch (error: any) {
     console.error('Signup error:', error);
-    
-    // Provide more specific error messages based on error type
-    if (error.name === 'ValidationError') {
-      return NextResponse.json(
-        { error: 'Invalid user data: ' + error.message },
-        { status: 400 }
-      );
-    }
-    
     return NextResponse.json(
       { error: error.message || 'Internal server error' },
       { status: 500 }
